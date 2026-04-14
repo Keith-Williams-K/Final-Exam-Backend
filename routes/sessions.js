@@ -4,32 +4,25 @@ const { Session, StudyGroup, User, Membership } = require('../models');
 const { protect } = require('../middleware/auth');
 const { Op } = require('sequelize');
 
-// @route   POST /api/sessions/:groupId
-// @desc    Create a new study session
-// @access  Private (leader only)
+// POST /api/sessions/:groupId - Create a session (leader only)
 router.post('/:groupId', protect, async (req, res) => {
     try {
         const groupId = req.params.groupId;
         const { title, date, time, location_link, description } = req.body;
+        const userId = req.user.id;
 
+        // Validation
         if (!title || !date || !time) {
-            return res.status(400).json({ 
-                message: 'Title, date, and time are required' 
-            });
+            return res.status(400).json({ message: 'Title, date, and time are required' });
         }
 
+        // Check if user is group leader
         const membership = await Membership.findOne({
-            where: { 
-                user_id: req.user.id, 
-                group_id: groupId, 
-                role: 'leader' 
-            }
+            where: { user_id: userId, group_id: groupId, role: 'leader' }
         });
 
         if (!membership && req.user.role !== 'admin') {
-            return res.status(403).json({ 
-                message: 'Only group leader can create sessions' 
-            });
+            return res.status(403).json({ message: 'Only group leader can create sessions' });
         }
 
         const session = await Session.create({
@@ -37,47 +30,40 @@ router.post('/:groupId', protect, async (req, res) => {
             title,
             date,
             time,
-            location_link: location_link || '',
+            location_link,
             description,
-            created_by: req.user.id
+            created_by: userId
         });
 
         res.status(201).json({
             success: true,
-            message: 'Study session created successfully',
+            message: 'Session created successfully',
             session
         });
 
     } catch (error) {
         console.error('Create session error:', error);
-        res.status(500).json({ 
-            message: 'Server error' 
-        });
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
-// @route   GET /api/sessions/group/:groupId
-// @desc    Get all sessions for a group
-// @access  Private (members only)
+// GET /api/sessions/group/:groupId - Get all sessions for a group
 router.get('/group/:groupId', protect, async (req, res) => {
     try {
         const groupId = req.params.groupId;
+        const userId = req.user.id;
 
+        // Check if user is a member
         const membership = await Membership.findOne({
-            where: { user_id: req.user.id, group_id: groupId }
+            where: { user_id: userId, group_id: groupId }
         });
 
         if (!membership && req.user.role !== 'admin') {
-            return res.status(403).json({ 
-                message: 'You must be a member to view sessions' 
-            });
+            return res.status(403).json({ message: 'Must be a member to view sessions' });
         }
 
         const sessions = await Session.findAll({
-            where: { 
-                group_id: groupId,
-                date: { [Op.gte]: new Date().toISOString().split('T')[0] }
-            },
+            where: { group_id: groupId },
             include: [
                 {
                     model: User,
@@ -88,23 +74,15 @@ router.get('/group/:groupId', protect, async (req, res) => {
             order: [['date', 'ASC'], ['time', 'ASC']]
         });
 
-        res.json({
-            success: true,
-            count: sessions.length,
-            sessions
-        });
+        res.json({ success: true, sessions });
 
     } catch (error) {
         console.error('Get sessions error:', error);
-        res.status(500).json({ 
-            message: 'Server error' 
-        });
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
-// @route   GET /api/sessions/upcoming
-// @desc    Get upcoming sessions for logged-in user
-// @access  Private
+// GET /api/sessions/upcoming - Get upcoming sessions for logged-in user
 router.get('/upcoming', protect, async (req, res) => {
     try {
         const memberships = await Membership.findAll({
@@ -115,10 +93,7 @@ router.get('/upcoming', protect, async (req, res) => {
         const groupIds = memberships.map(m => m.group_id);
 
         if (groupIds.length === 0) {
-            return res.json({ 
-                success: true, 
-                sessions: [] 
-            });
+            return res.json({ success: true, sessions: [] });
         }
 
         const sessions = await Session.findAll({
@@ -141,16 +116,38 @@ router.get('/upcoming', protect, async (req, res) => {
             limit: 10
         });
 
-        res.json({
-            success: true,
-            sessions
-        });
+        res.json({ success: true, sessions });
 
     } catch (error) {
-        console.error('Get upcoming sessions error:', error);
-        res.status(500).json({ 
-            message: 'Server error' 
+        console.error('Get upcoming error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// DELETE /api/sessions/:sessionId - Delete a session
+router.delete('/:sessionId', protect, async (req, res) => {
+    try {
+        const session = await Session.findByPk(req.params.sessionId, {
+            include: [{ model: StudyGroup, attributes: ['leader_id'] }]
         });
+
+        if (!session) {
+            return res.status(404).json({ message: 'Session not found' });
+        }
+
+        const isLeader = session.StudyGroup.leader_id === req.user.id;
+        const isCreator = session.created_by === req.user.id;
+
+        if (!isLeader && !isCreator && req.user.role !== 'admin') {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        await session.destroy();
+        res.json({ success: true, message: 'Session deleted' });
+
+    } catch (error) {
+        console.error('Delete session error:', error);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 

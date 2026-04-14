@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { StudyGroup, User, Membership } = require('../models');
 const { protect } = require('../middleware/auth');
-
 // @route   POST /api/groups
 // @desc    Create a new study group
 // @access  Private
@@ -24,10 +23,12 @@ router.post('/', protect, async (req, res) => {
             leader_id: req.user.id
         });
 
+        // Create membership for leader with APPROVED status
         await Membership.create({
             user_id: req.user.id,
             group_id: group.id,
-            role: 'leader'
+            role: 'leader',
+            status: 'approved'  // ← ADD THIS LINE
         });
 
         const groupWithDetails = await StudyGroup.findByPk(group.id, {
@@ -54,7 +55,42 @@ router.post('/', protect, async (req, res) => {
     }
 });
 
-// @route   GET /api/groups
+// @route   GET /api/groups/:id
+// @desc    Get single group details
+// @access  Public
+router.get('/:id', async (req, res) => {
+    try {
+        const group = await StudyGroup.findByPk(req.params.id, {
+            include: [
+                {
+                    model: User,
+                    as: 'leader',
+                    attributes: ['id', 'name', 'email', 'program']
+                },
+                {
+                    model: User,
+                    attributes: ['id', 'name', 'program', 'year'],
+                    through: { 
+                        attributes: ['role', 'status'],
+                        where: { status: 'approved' }  // Only approved members
+                    },
+                    required: false  // ← ADD THIS so group shows even with no members
+                }
+            ]
+        });
+
+        if (!group) {
+            return res.status(404).json({ message: 'Group not found' });
+        }
+
+        res.json({ success: true, group });
+    } catch (error) {
+        console.error('Get group error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+/// @route   GET /api/groups
 // @desc    Get all study groups
 // @access  Public
 router.get('/', async (req, res) => {
@@ -69,7 +105,10 @@ router.get('/', async (req, res) => {
                 {
                     model: User,
                     attributes: ['id'],
-                    through: { attributes: [] }
+                    through: { 
+                        attributes: [],
+                        where: { status: 'approved' }  // Only count approved members
+                    }
                 }
             ],
             order: [['created_at', 'DESC']]
@@ -90,42 +129,9 @@ router.get('/', async (req, res) => {
 
     } catch (error) {
         console.error('Get groups error:', error);
-        res.status(500).json({ 
-            message: 'Server error' 
-        });
+        res.status(500).json({ message: 'Server error' });
     }
 });
-// @route   GET /api/groups/:id
-// @desc    Get single group details
-// @access  Public
-router.get('/:id', async (req, res) => {
-  try {
-    const group = await StudyGroup.findByPk(req.params.id, {
-      include: [
-        {
-          model: User,
-          as: 'leader',
-          attributes: ['id', 'name', 'email', 'program']
-        },
-        {
-          model: User,
-          attributes: ['id', 'name', 'program', 'year'],
-          through: { attributes: ['role', 'joined_at'] }
-        }
-      ]
-    });
-
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
-
-    res.json({ success: true, group });
-  } catch (error) {
-    console.error('Get group error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
 // @route   PUT /api/groups/:id
 // @desc    Update group details
 // @access  Private (leader only)

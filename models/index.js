@@ -35,7 +35,7 @@ Membership.belongsTo(StudyGroup, { foreignKey: 'group_id' });
 StudyGroup.hasMany(Session, { foreignKey: 'group_id' });
 Session.belongsTo(StudyGroup, { foreignKey: 'group_id' });
 Session.belongsTo(User, { as: 'creator', foreignKey: 'created_by' });
-
+User.hasMany(Session, { foreignKey: 'created_by' });
 // Posts
 StudyGroup.hasMany(Post, { foreignKey: 'group_id' });
 Post.belongsTo(StudyGroup, { foreignKey: 'group_id' });
