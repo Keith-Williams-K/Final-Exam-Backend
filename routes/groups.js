@@ -93,9 +93,32 @@ router.get('/:id', async (req, res) => {
 /// @route   GET /api/groups
 // @desc    Get all study groups
 // @access  Public
+// @route   GET /api/groups
+// @desc    Get all study groups with optional search
+// @access  Public
 router.get('/', async (req, res) => {
     try {
+        const { search, course } = req.query;
+        const { Op } = require('sequelize');
+        
+        let whereClause = {};
+        
+        // Search by group name, course, or description
+        if (search) {
+            whereClause[Op.or] = [
+                { name: { [Op.like]: `%${search}%` } },
+                { course: { [Op.like]: `%${search}%` } },
+                { description: { [Op.like]: `%${search}%` } }
+            ];
+        }
+        
+        // Filter by specific course
+        if (course) {
+            whereClause.course = { [Op.like]: `%${course}%` };
+        }
+
         const groups = await StudyGroup.findAll({
+            where: whereClause,
             include: [
                 {
                     model: User,
@@ -107,7 +130,7 @@ router.get('/', async (req, res) => {
                     attributes: ['id'],
                     through: { 
                         attributes: [],
-                        where: { status: 'approved' }  // Only count approved members
+                        where: { status: 'approved' }
                     }
                 }
             ],
